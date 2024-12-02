@@ -1,16 +1,16 @@
 name: License Compliance Verification
- 
+
 on:
   push:
     branches: [ "main" ]
- 
+
 permissions:
   contents: read
   security-events: write
   actions: read
   checks: write
   packages: write
- 
+
 jobs:
   license-compliance-verification:
     runs-on: ubuntu-latest
@@ -18,40 +18,40 @@ jobs:
       # Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@v4
- 
+
       # Set up JDK 21
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'microsoft'
- 
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5
         with:
           gradle-version: '8.5'
-         
+
       - name: give permission to gradle
         run: chmod +x gradlew
- 
+
       # Generate License Report
       - name: Generate License Report
         run: |
           ./gradlew generateLicenseReport
           find build -name "*.json" -type f
-         
+
       # Convert JSON report to compatible XML format
       - name: Install jq
         run: sudo apt-get install -y jq
- 
+
       - name: Convert License Report to JUnit XML
         run: |
           echo '<?xml version="1.0" encoding="UTF-8"?>' > license_finder_report.xml
           echo '<testsuites>' >> license_finder_report.xml
           echo '<testsuite name="License Compliance" tests="1">' >> license_finder_report.xml
-         
+
           LICENSE_JSON="build/reports/dependency-license/index.json"
-         
+
           if [ -f "$LICENSE_JSON" ]; then
             jq -r '.dependencies[] | "  <testcase name=\"License Check - \(.moduleName)\" classname=\"License Compliance\">
               <system-out>Module: \(.moduleName)\nLicense: \(.license)</system-out>
@@ -65,16 +65,17 @@ jobs:
             find build -type f -name "*.json"
             exit 1
           fi
-         
+
           echo '</testsuite>' >> license_finder_report.xml
           echo '</testsuites>' >> license_finder_report.xml
+
       # Publish Report to GitHub UI
       - name: Publish Test Results
         uses: EnricoMi/publish-unit-test-result-action@v2.2.0
         if: always()
         with:
           junit_files: "license_finder_report.xml"
- 
+
       # Upload Only Specific License Reports as Artifacts
       - name: Upload License Reports
         if: always()
@@ -84,34 +85,34 @@ jobs:
           path: |
             build/reports/dependency-license/index.html
             build/reports/dependency-license/index.json
- 
+
       - name: Publish License Reports to GHCR
         run: |
           echo "Publishing License Reports to GitHub Packages"
- 
+
           # Authenticate with GitHub Container Registry (GHCR)
           echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
- 
+
           # Prepare reports directory
           mkdir -p license-reports
           cp build/reports/dependency-license/index.html license-reports/
           cp build/reports/dependency-license/index.xml license-reports/
           cp build/reports/dependency-license/index.json license-reports/
           cp license_finder_report.xml license-reports/
- 
+
           # Set repository owner and name in lowercase
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
- 
+
           # Define image tag for GHCR
           IMAGE_TAG="ghcr.io/${REPO_OWNER}/${REPO_NAME}-license-reports:latest"
- 
+
           # Create a Dockerfile for the reports
           cat <<EOF > Dockerfile
           FROM scratch
           COPY license-reports/ /license-reports/
           EOF
- 
+
           # Build and push the Docker image
           docker build -t $IMAGE_TAG .
           docker push $IMAGE_TAG
