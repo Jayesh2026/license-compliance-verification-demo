@@ -17,20 +17,24 @@ jobs:
       - name: 'Checkout Repository'
         uses: actions/checkout@v4
 
-      # Removing Maven Wrapper Script
-      - name: 'License Finder fix with mvnw'
-        run: rm mvnw
+      # Install Dependencies for License Finder
+      - name: 'Install License Finder'
+        run: |
+          gem install license_finder
 
-      # Run License Finder
+      # Run Gradle Dependency Report
+      - name: 'Generate Dependency Report with Gradle'
+        run: |
+          ./gradlew dependencies --configuration runtimeClasspath > gradle-dependencies.txt
+
+      # Run License Finder for Gradle Dependencies
       - name: 'Run License Finder'
-        uses: jmservera/license-finder-action@main
-        with:
-          permitted-licenses: MIT,Apache-2.0
-          approved-dependencies: |
-                                 hamcrest,hamcrest-core,hamcrest-library
-                                 junit-jupiter,junit-jupiter-api,junit-jupiter-engine,javax.annotation-api
-          report-name: license_finder_report.xml
-          base-path: ${{ github.workspace }}
+        run: |
+          license_finder --gradle --aggregate-summary --decisions-file decisions.yml \
+            --allowed MIT --allowed Apache-2.0 \
+            --output license_finder_report.xml
+        env:
+          GRADLE_HOME: ${{ runner.workspace }}/.gradle
 
       # Publish Report to GitHub UI
       - name: Publish Test Results
@@ -39,7 +43,7 @@ jobs:
         with:
           junit_files: "license_finder_report.xml"
 
-      # Upload Report In Artifact
+      # Upload Report as Artifact
       - name: 'Upload Dependency Review Report In Artifact'
         if: always()
         uses: actions/upload-artifact@v4
@@ -47,28 +51,24 @@ jobs:
           name: license-finder-report
           path: ${{ github.workspace }}/license_finder_report.xml
 
-      # Login into container registry
-      # - name: Log in to the Container registry
-      #   uses: docker/login-action@v3
-      #   with:
-      #     registry: ghcr.io
-          # username: {{ github.actor }}
-          # password: {{ secrets.GH_PAT }}
+       # Login into container registry
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GRA_PAT }}
 
-        # Packaging Report and Upload to Contaier registry
+      # Packaging Report & Upload to Container Registry
       - name: Packaging Report & Upload to Container registry
         run: |
           echo "FROM alpine" > Dockerfile
           echo "COPY license_finder_report.xml /license_finder_report.xml" >> Dockerfile
           echo "CMD [\"cat\", \"/license_finder_report.xml\"]" >> Dockerfile
-
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-
           IMAGE_TAG="ghcr.io/${REPO_OWNER}/${REPO_NAME}/license-finder-report:latest"
-
           docker build -t $IMAGE_TAG .
           docker push "$IMAGE_TAG"
-
           echo "Pull Image Using Command: docker pull $IMAGE_TAG"
           echo "Extract Report Using Command: docker run --rm $IMAGE_TAG > license_finder_report.xml"
