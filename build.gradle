@@ -34,7 +34,10 @@ repositories {
 dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	compileOnly 'org.projectlombok:lombok'
-	compileOnly 'com.github.jk1:gradle-license-report:2.0'
+
+    // Updated version of the dependency to match the plugin version
+    compileOnly 'com.github.jk1:gradle-license-report:2.9'
+
 	runtimeOnly 'org.postgresql:postgresql'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
