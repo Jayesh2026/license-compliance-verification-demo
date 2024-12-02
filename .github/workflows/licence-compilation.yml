@@ -50,7 +50,7 @@ jobs:
           echo '<testsuites>' >> license_finder_report.xml
           echo '<testsuite name="License Compliance" tests="1">' >> license_finder_report.xml
 
-          LICENSE_JSON="build/reports/dependency-license/index.json"
+          LICENSE_JSON="build/reports/dependency-license/index.html"
 
           if [ -f "$LICENSE_JSON" ]; then
             jq -r '.dependencies[] | "  <testcase name=\"License Check - \(.moduleName)\" classname=\"License Compliance\">
