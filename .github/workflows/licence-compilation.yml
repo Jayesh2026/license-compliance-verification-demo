@@ -2,117 +2,103 @@ name: License Compliance Verification
 
 on:
   push:
-    branches: [ "main" ]
-
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-  checks: write
-  packages: write
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
-  license-compliance-verification:
+  license-compliance:
     runs-on: ubuntu-latest
+
     steps:
-      # Checkout Repository
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       # Set up JDK 21
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3
         with:
+          distribution: 'zulu'
           java-version: '21'
-          distribution: 'microsoft'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@417ae3ccd767c252f5661f1ace9f835f9654f2b5
+      # Cache Gradle dependencies to speed up the build
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v3
         with:
-          gradle-version: '8.5'
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
-      - name: give permission to gradle
-        run: chmod +x gradlew
+      # Install dependencies and build project
+      - name: Build with Gradle
+        run: ./gradlew build
 
-      # Generate License Report
+      # Generate License Report (using Gradle License plugin)
       - name: Generate License Report
+        run: ./gradlew generateLicenseReport
+
+      # Create the License Report XML
+      - name: Create License Finder Report XML
         run: |
-          ./gradlew generateLicenseReport
-          find build -name "*.json" -type f
+            echo "Creating License Compliance Report"
+            LICENSE_HTML="build/reports/dependency-license/index.html"
+            
+            # Start XML generation
+            echo '<?xml version="1.0" encoding="UTF-8"?>' > license_finder_report.xml
+            echo '<testsuites>' >> license_finder_report.xml
+            echo '<testsuite name="License Compliance" tests="0">' >> license_finder_report.xml  # Default tests count as 0
 
-      # Convert JSON report to compatible XML format
-      - name: Install jq
-        run: sudo apt-get install -y jq
+            # Check if the HTML report exists
+            if [ -f "$LICENSE_HTML" ]; then
+              # Extract the count of dependencies (assuming each <tr> contains a module's information)
+              DEPENDENCIES_COUNT=$(grep -oP '<tr><td>\K[^<]+' "$LICENSE_HTML" | wc -l)
 
-      - name: Convert License Report to JUnit XML
-        run: |
-          echo '<?xml version="1.0" encoding="UTF-8"?>' > license_finder_report.xml
-          echo '<testsuites>' >> license_finder_report.xml
-          echo '<testsuite name="License Compliance" tests="1">' >> license_finder_report.xml
+              # Check if dependencies are found
+              if [ "$DEPENDENCIES_COUNT" -gt 0 ]; then
+                # Update the tests count in the XML report
+                echo "  <testsuite name=\"License Compliance\" tests=\"$DEPENDENCIES_COUNT\">" >> license_finder_report.xml
 
-          LICENSE_JSON="build/reports/dependency-license/index.html"
+                # Loop through each module and extract the module name and license information
+                grep -oP '<tr><td>\K[^<]+' "$LICENSE_HTML" | while read -r moduleName; do
+                  # Extract license info related to the module
+                  license=$(grep -A 1 "$moduleName" "$LICENSE_HTML" | tail -n 1)
 
-          if [ -f "$LICENSE_JSON" ]; then
-            jq -r '.dependencies[] | "  <testcase name=\"License Check - \(.moduleName)\" classname=\"License Compliance\">
-              <system-out>Module: \(.moduleName)\nLicense: \(.license)</system-out>
-            </testcase>"' "$LICENSE_JSON" >> license_finder_report.xml || {
-              echo "Error processing JSON file"
-              cat "$LICENSE_JSON"
+                  # Add the information to the XML file
+                  echo "  <testcase name=\"License Check - $moduleName\" classname=\"License Compliance\">" >> license_finder_report.xml
+                  echo "    <system-out>Module: $moduleName\\nLicense: $license</system-out>" >> license_finder_report.xml
+                  echo "  </testcase>" >> license_finder_report.xml
+                done
+              else
+                echo "No dependencies found in the HTML report"  # Log a message if no dependencies are found
+              fi
+            else
+              # If the HTML file doesn't exist, log the error and exit
+              echo "Error: License report HTML file not found at $LICENSE_HTML"
+              find build -type f -name "*.html"  # List all HTML files in the build directory for troubleshooting
               exit 1
-            }
-          else
-            echo "Error: License report JSON file not found at $LICENSE_JSON"
-            find build -type f -name "*.json"
-            exit 1
-          fi
+            fi
 
-          echo '</testsuite>' >> license_finder_report.xml
-          echo '</testsuites>' >> license_finder_report.xml
+            # Close the XML tags
+            echo '</testsuite>' >> license_finder_report.xml
+            echo '</testsuites>' >> license_finder_report.xml
 
-      # Publish Report to GitHub UI
-      - name: Publish Test Results
+            # Log completion
+            echo "License report has been generated as license_finder_report.xml"
+
+      # Publish the generated XML license compliance report
+      - name: Publish License Compliance Results
         uses: EnricoMi/publish-unit-test-result-action@v2.2.0
-        if: always()
         with:
-          junit_files: "license_finder_report.xml"
+          files: license_finder_report.xml
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Upload Only Specific License Reports as Artifacts
-      - name: Upload License Reports
-        if: always()
-        uses: actions/upload-artifact@v4
+      # Upload the generated XML as an artifact (optional, for future reference)
+      - name: Upload License Report Artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: license-reports
-          path: |
-            build/reports/dependency-license/index.html
-            build/reports/dependency-license/index.json
-
-      - name: Publish License Reports to GHCR
-        run: |
-          echo "Publishing License Reports to GitHub Packages"
-
-          # Authenticate with GitHub Container Registry (GHCR)
-          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-          # Prepare reports directory
-          mkdir -p license-reports
-          cp build/reports/dependency-license/index.html license-reports/
-          cp build/reports/dependency-license/index.xml license-reports/
-          cp build/reports/dependency-license/index.json license-reports/
-          cp license_finder_report.xml license-reports/
-
-          # Set repository owner and name in lowercase
-          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          REPO_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-
-          # Define image tag for GHCR
-          IMAGE_TAG="ghcr.io/${REPO_OWNER}/${REPO_NAME}-license-reports:latest"
-
-          # Create a Dockerfile for the reports
-          cat <<EOF > Dockerfile
-          FROM scratch
-          COPY license-reports/ /license-reports/
-          EOF
-
-          # Build and push the Docker image
-          docker build -t $IMAGE_TAG .
-          docker push $IMAGE_TAG
+          name: license-compliance-report
+          path: license_finder_report.xml
