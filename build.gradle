@@ -1,49 +1,54 @@
 plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.4.0'
-	id 'io.spring.dependency-management' version '1.1.6'
-	id 'com.github.jk1.dependency-license-report' version '2.9'
+    id 'java'
+    id 'org.springframework.boot' version '3.4.0'
+    id 'io.spring.dependency-management' version '1.1.6'
+    id 'com.github.jk1.dependency-license-report' version '2.9'
 }
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
-	}
-}
-
-configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
-	}
-}
-
-repositories {
-	mavenCentral()
-}
-
-
-repositories {
-    maven {
-        url 'https://plugins.gradle.org/m2/'
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	compileOnly 'org.projectlombok:lombok'
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    compileOnly 'org.projectlombok:lombok'
 
-    // Updated version of the dependency to match the plugin version
-    compileOnly 'com.github.jk1:gradle-license-report:2.9'
+    runtimeOnly 'org.postgresql:postgresql'
+    annotationProcessor 'org.projectlombok:lombok'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    
+    // // Ensure the correct dependency for the license report plugin
+    // implementation 'com.github.jk1:gradle-license-report:2.9'
+}
 
-	runtimeOnly 'org.postgresql:postgresql'
-	annotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+licenseReport {
+    // Path to the allowed licenses file
+    allowedLicensesFile = file("$projectDir/config/allowed-licenses.json")
+
+    // Define renderers to output the report in various formats
+    renderers = [
+        new com.github.jk1.license.render.JsonReportRenderer(),
+        new com.github.jk1.license.render.XmlReportRenderer(),
+        new com.github.jk1.license.render.InventoryHtmlReportRenderer()
+    ]
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+    useJUnitPlatform()
 }
